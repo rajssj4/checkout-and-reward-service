@@ -10,7 +10,7 @@ Use Node 24.21.0 (pinned in `.nvmrc`) and npm. Start PostgreSQL with Docker Comp
 nvm use
 npm ci
 cp .env.example .env
-docker compose up -d --wait
+docker compose up -d --wait postgres
 npm run db:migrate
 npm run db:seed
 npm run dev
@@ -40,6 +40,7 @@ curl http://localhost:3000/health
 | TEST_DATABASE_URL     | Set explicitly for integration tests; example uses checkout_test |
 | REWARD_EVERY_N_ORDERS | 5; integer 1–2147483647                                          |
 | DISCOUNT_BPS          | 1000 (10%); integer 0–10000                                      |
+| DB_POOL_MAX           | 10 locally; integer 1–100; Vercel image defaults to 2            |
 | CURRENCY              | USD only                                                         |
 
 Reward settings are persisted at first initialization; subsequent startup/migration rejects mismatches. Seed reruns insert missing products without resetting inventory. Amounts are stored as PostgreSQL BIGINT minor units, which the driver returns as strings to preserve precision. Cart calculations use BigInt, then convert to safe JSON integers; out-of-range totals are rejected. Environment variables override `.env`.
@@ -142,10 +143,16 @@ The repository still needs to be shared as public or access-granted for submissi
 
 ## Final verification and time spent
 
-Verified from a clean temporary copy with Node 24.21.0 and PostgreSQL 17: `npm ci`, migrations and seed run twice, typecheck, build, formatting, and **39 passing tests** (11 unit/HTTP and 28 PostgreSQL integration cases). The compiled service completed cart creation, six orders, coupon generation/redemption, checkout replay, order retrieval, reporting, and Swagger serving. OpenAPI YAML parses and all local references resolve. Docker Compose was not exercised in this environment; database verification used local PostgreSQL 17.
+Verified from a clean temporary copy with Node 24.21.0 and PostgreSQL 17: `npm ci`, migrations and seed run twice, typecheck, build, formatting, and **39 passing tests** (11 unit/HTTP and 28 PostgreSQL integration cases). The compiled service completed cart creation, six orders, coupon generation/redemption, checkout replay, order retrieval, reporting, and Swagger serving. OpenAPI YAML parses and all local references resolve. Both Docker images and Compose stacks were subsequently built and tested against containerized PostgreSQL 17. The 28 integration tests also passed against the PostgreSQL container, and rerunning the initialization container preserved purchased inventory.
 
-Approximate time: **1 hour 59 minutes**, using the agreed calculation:
+Approximate time: **2 hours 25 minutes**, using the agreed calculation:
 
 - First commit in this repository: `dc98082`, September 10, 2026 at **20:43:59 IST**.
-- Final review completed: September 10, 2026 at **22:02:31 IST**.
-- Elapsed implementation window: **1 hour 18 minutes 32 seconds**, plus **40 minutes of planning**.
+- Final review completed: September 10, 2026 at **22:29:01 IST**.
+- Elapsed implementation window: **1 hour 45 minutes 2 seconds**, plus **40 minutes of planning**.
+
+## Container deployment
+
+Run the API and PostgreSQL together with `docker compose up --build -d --wait`. Use `Dockerfile` for a standard production image or `Dockerfile.vercel` for Vercel's container deployment path. See [deployment instructions](docs/DEPLOYMENT.md) for image builds, migration/seed steps, local Vercel-image testing, and external PostgreSQL configuration.
+
+The timing above includes the additional Docker/Vercel image work. Images were built locally as `checkout-and-reward-service:local` and `checkout-and-reward-service:vercel`; they have not been published or deployed to Vercel.

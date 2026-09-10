@@ -26,6 +26,8 @@ describe('service foundation', () => {
   it('rejects invalid configuration', () => {
     for (const env of [
       { PORT: '0' },
+      { DB_POOL_MAX: '0' },
+      { DB_POOL_MAX: '101' },
       { REWARD_EVERY_N_ORDERS: '0' },
       { DISCOUNT_BPS: '10001' },
       { CURRENCY: 'XYZ' },

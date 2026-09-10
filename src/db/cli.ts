@@ -7,7 +7,7 @@ const command = process.argv[2];
 if (command !== 'migrate' && command !== 'seed')
   throw new Error('Expected migrate or seed command.');
 const config = readConfig();
-const db = openDatabase(config.DATABASE_URL);
+const db = openDatabase(config.DATABASE_URL, 'public', config.DB_POOL_MAX);
 try {
   if (command === 'migrate') await migrate(db, config);
   else {

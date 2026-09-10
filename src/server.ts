@@ -4,7 +4,7 @@ import { openDatabase } from './db/connection.js';
 import { assertSettings } from './db/migrate.js';
 
 const config = readConfig();
-const db = openDatabase(config.DATABASE_URL);
+const db = openDatabase(config.DATABASE_URL, 'public', config.DB_POOL_MAX);
 try {
   await assertSettings(db, config);
 } catch (error) {

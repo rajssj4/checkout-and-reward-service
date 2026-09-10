@@ -74,7 +74,7 @@
 
 ## Production evolution and scope
 
-**Choice:** Multiple instances share PostgreSQL and use the same lock ordering and unique constraints. Keep authentication, real payments, refunds, taxes, shipping, reservations, expiry, pagination, and deployment outside this submission.
+**Choice:** Multiple instances share PostgreSQL and use the same lock ordering and unique constraints. Keep authentication, real payments, refunds, taxes, shipping, reservations, expiry, pagination, and live cloud deployment outside this submission.
 
 **Why:** These require separate lifecycle/security decisions beyond the checkout invariants. A distributed in-memory lock would add a second coordination system unnecessarily.
 
@@ -87,3 +87,11 @@
 **Why:** Generated tests alone are insufficient: the initial named Knex import passed the test runner but failed in the real CLI. It was replaced with the runtime-compatible default import and verified through migrations and compiled startup. The user also redirected SQLite to PostgreSQL/Knex.
 
 **Trade-off:** AI accelerated implementation but does not establish correctness or human review. No private transcripts are included; the candidate remains responsible for explaining and reviewing the submitted code.
+
+## Container packaging and database lifecycle
+
+**Choice:** Separate standard and Vercel Dockerfiles package the same compiled service as a non-root process. Compose runs migration/seed once before starting the API. Vercel uses external PostgreSQL and a separate migration release step, with a smaller configurable connection pool.
+
+**Why:** Container builds need no database credentials, and autoscaled instances must not race to mutate schema or seed data at startup.
+
+**Trade-off:** The Vercel container path is beta and requires project PORT=3000 plus an external database. Image definitions duplicate a small build recipe so each remains independently deployable.

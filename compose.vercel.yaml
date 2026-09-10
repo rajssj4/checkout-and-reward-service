@@ -1,0 +1,14 @@
+# Local validation of the Vercel image; Vercel itself does not run this Compose stack.
+services:
+  db-init:
+    image: checkout-and-reward-service:vercel
+    build:
+      dockerfile: Dockerfile.vercel
+    environment:
+      DB_POOL_MAX: '2'
+  app:
+    image: checkout-and-reward-service:vercel
+    build:
+      dockerfile: Dockerfile.vercel
+    environment:
+      DB_POOL_MAX: '2'
