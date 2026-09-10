@@ -1,6 +1,6 @@
 # Checkout and Reward Service
 
-Node.js 24, TypeScript, Express, PostgreSQL, and Knex. Initial setup includes configuration validation, versioned migrations, five seed products, health API, Swagger UI, and focused setup tests. Product listing and cart APIs are implemented. Atomic checkout and immutable order retrieval are implemented; coupons and reporting are next.
+Node.js 24, TypeScript, Express, PostgreSQL, and Knex. Initial setup includes configuration validation, versioned migrations, five seed products, health API, Swagger UI, and focused setup tests. Product listing and cart APIs are implemented. Atomic checkout, immutable orders, single-use milestone coupons, and reconciled reporting are implemented.
 
 ## Setup
 
@@ -67,7 +67,7 @@ Integration tests create a unique schema in the dedicated test database and remo
 - `tests/`: HTTP/configuration and real PostgreSQL integration tests.
 - [DECISIONS.md](DECISIONS.md): specific design choices and trade-offs.
 
-Product and cart APIs are implemented. Coupon redemption/generation and reporting remain to be implemented.
+Product and cart APIs are implemented. Coupon generation/redemption and read-only reporting are implemented.
 
 ## Products and carts
 
@@ -98,6 +98,27 @@ curl http://localhost:3000/orders/ORDER_ID
 
 First success returns 201, replay returns 200 with the same order, and a different key for the completed cart returns 409 with its existing order ID. A key reused for another cart or changed coupon input returns 409 IDEMPOTENCY_KEY_REUSED. Keys are global, case-sensitive, 1–128 printable ASCII characters without spaces, and retained with successful orders. Failed attempts are not cached. Retry timeouts/503 with the same key.
 
-Checkout locks its idempotency key, cart, and products (in product-ID order) inside a PostgreSQL transaction. It snapshots current product names/prices, decrements inventory with guarded updates, creates the order, and closes the cart. Commit is payment success. A commit failure rolls everything back. No external payment call is made. Orders retain exact purchase details after product changes; discounts are currently zero. Supplied coupon codes are rejected as COUPON_INVALID until rewards are implemented.
+Checkout locks its idempotency key, cart, optional coupon, and products (in product-ID order) inside a PostgreSQL transaction. It snapshots current product names/prices, decrements inventory with guarded updates, creates the order, and closes the cart. Commit is payment success. A commit failure rolls everything back. No external payment call is made. Orders retain exact purchase details and coupon code/rate snapshots after product changes. Invalid or previously redeemed coupon codes return distinct 409 errors.
 
 `npm run test:integration` also exercises checkout across two independent connection pools: repeated/same-key requests, different-key conflicts, the last inventory unit, edit/checkout competition, changed prices, unsafe amounts, and a deferred database trigger that forces COMMIT to fail. The trigger exists only in an isolated test schema; the production service has no failure-injection endpoint.
+
+## Rewards and reporting (administrative)
+
+Every `REWARD_EVERY_N_ORDERS` globally successful orders unlocks one coupon milestone. Discounted orders count. An administrator explicitly generates one coupon for the oldest eligible milestone; checkout does not generate coupons automatically. Backlogged milestones remain available. A retry of generation can create the next eligible coupon, so generation is not idempotent across milestones.
+
+```sh
+# First place at least five successful orders with the default configuration.
+curl -X POST http://localhost:3000/admin/coupons -H 'Content-Type: application/json' -d '{}'
+curl http://localhost:3000/admin/coupons
+# Create and fill another cart, then use the returned coupon code.
+curl -X POST http://localhost:3000/carts/CART_ID/checkout -H 'Content-Type: application/json' -H 'Idempotency-Key: discounted-checkout-001' -d '{"couponCode":"COUPON_CODE"}'
+curl http://localhost:3000/admin/reports/summary
+```
+
+All `/admin/*` operations are administrative; authentication/authorization is intentionally omitted. Coupons are case-sensitive bearer codes, trimmed at checkout, single-use, with no expiry or stacking. A coupon is consumed only when its order commits. Failed checkout leaves it available. The order that unlocks a milestone cannot use that milestone's not-yet-generated coupon.
+
+Discounts use basis points and round half-up once on the whole order subtotal: `(grossMinor * discountBps + 5000) / 10000`, using integer division and BigInt intermediates. Discounts cannot exceed gross; 100% discounts yield zero net. Coupon status is derived from its unique order association.
+
+The all-time report includes purchased quantities for every product, gross revenue, discounts, net revenue, coupon counts, and successful orders. It reads one consistent snapshot and never changes state. Gross minus discounts equals net; generated coupons equal available plus redeemed. Aggregate values outside safe JSON integer bounds return AMOUNT_OUT_OF_RANGE rather than losing precision.
+
+Tests cover concurrent coupon generation/redemption, milestone backlogs, coupon preservation after stock/commit failures, 0%/100% discounts, rounding ties, and exact reporting after retries and failed requests.

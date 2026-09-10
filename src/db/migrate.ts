@@ -3,6 +3,7 @@ import type { Config } from '../config.js';
 import * as foundation from './migrations/001-foundation.js';
 import * as carts from './migrations/002-carts.js';
 import * as orders from './migrations/003-orders.js';
+import * as coupons from './migrations/004-coupons.js';
 
 export async function assertSettings(db: Knex, config: Config) {
   const settings = await db('settings').where({ id: 1 }).first();
@@ -23,6 +24,7 @@ export async function migrate(db: Knex, config: Config) {
     '001-foundation': foundation,
     '002-carts': carts,
     '003-orders': orders,
+    '004-coupons': coupons,
   };
   // Explicit source works in both TypeScript development and compiled JavaScript.
   await db.migrate.latest({

@@ -42,8 +42,24 @@
 
 ## Purchase snapshots and money
 
-**Choice:** Snapshot product names, current unit prices, quantities, and line/order totals. Use BigInt arithmetic and safe integer JSON amounts. Discounts are zero until coupons are implemented; supplied codes fail explicitly.
+**Choice:** Snapshot product names, current unit prices, quantities, and line/order totals. Use BigInt arithmetic and safe integer JSON amounts. Compute discounts with basis points and round half-up once on the gross subtotal using BigInt.
 
 **Why:** Historical purchases must remain explainable after product edits. Floating-point currency arithmetic and reading live product prices for orders would violate this.
 
-**Trade-off:** Snapshot data is duplicated intentionally. Coupon calculation/rounding and reporting are still pending.
+**Trade-off:** Snapshot data is duplicated intentionally. Amounts exceeding safe JSON integer bounds are rejected; 100% discounts produce zero net.
+
+## Reward milestones and single-use coupons
+
+**Choice:** Global successful-order milestones, explicit admin generation, one oldest eligible coupon per request. Lock the settings row to serialize generators; enforce unique milestone numbers. Coupons are append-only bearer codes without expiry or stacking. Redemption locks the coupon and stores its unique order association in the checkout transaction.
+
+**Why:** Backlogs remain recoverable; competing requests cannot duplicate a milestone or consume the same coupon. Discounted orders count, and failed checkout never consumes a coupon.
+
+**Trade-off:** Generation retries may create the next eligible coupon. Coupon deletion and changing reward rules are unsupported; supporting either requires revisiting milestone allocation.
+
+## Reports from committed source records
+
+**Choice:** Aggregate orders, order items, and coupons inside one read-only repeatable-read transaction. Sum order totals separately from item quantities; derive redemption counts from orders.
+
+**Why:** Reports reconcile without duplicate revenue from joins or counters drifting after retries/failures.
+
+**Trade-off:** All-time aggregation and unpaginated coupon listing are appropriate for this assignment; production scale may need projections reconciled to source records.

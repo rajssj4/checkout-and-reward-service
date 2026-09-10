@@ -14,6 +14,9 @@ export async function getOrder(db: Knex, id: string) {
     cartId: order.cart_id as string,
     createdAt: (order.created_at as Date).toISOString(),
     currency: order.currency as string,
+    coupon: order.coupon_id
+      ? { id: order.coupon_id as string, code: order.coupon_code as string }
+      : null,
     discountBps: order.discount_bps as number,
     grossMinor: toMinorNumber(BigInt(order.gross_minor)),
     discountMinor: toMinorNumber(BigInt(order.discount_minor)),

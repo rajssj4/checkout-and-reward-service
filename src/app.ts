@@ -7,6 +7,7 @@ import { DomainError } from './domain/errors.js';
 import { cartService } from './services/carts.js';
 import { cartRoutes } from './routes/carts.js';
 import { orderRoutes } from './routes/orders.js';
+import { adminRoutes } from './routes/admin.js';
 
 export function createApp(dependencies?: { db: Knex; currency: string }) {
   const app = express();
@@ -31,6 +32,7 @@ export function createApp(dependencies?: { db: Knex; currency: string }) {
   if (dependencies) {
     app.use(cartRoutes(cartService(dependencies.db, dependencies.currency)));
     app.use(orderRoutes(dependencies.db, dependencies.currency));
+    app.use(adminRoutes(dependencies.db, dependencies.currency));
   }
   app.use((_request, response) => {
     response.status(404).json({

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Knex } from 'knex';
 import { DomainError } from '../domain/errors.js';
-import { toMinorNumber } from '../domain/money.js';
+import { discountMinor, toMinorNumber } from '../domain/money.js';
 import { getOrder } from './orders.js';
 
 export interface CheckoutInput {
@@ -59,9 +59,23 @@ export function checkoutService(db: Knex, currency: string) {
           'EMPTY_CART',
           'Cannot check out an empty cart.',
         );
-      // Coupon generation/redemption is the next phase. Never silently ignore a supplied code.
-      if (couponCode)
-        throw new DomainError(409, 'COUPON_INVALID', 'Coupon is not valid.');
+      let coupon:
+        { id: string; code: string; discount_bps: number } | undefined;
+      if (couponCode) {
+        coupon = await trx('coupons')
+          .where({ code: couponCode })
+          .forUpdate()
+          .first();
+        if (!coupon)
+          throw new DomainError(409, 'COUPON_INVALID', 'Coupon is not valid.');
+        if (await trx('orders').where({ coupon_id: coupon.id }).first('id')) {
+          throw new DomainError(
+            409,
+            'COUPON_ALREADY_REDEEMED',
+            'Coupon has already been redeemed.',
+          );
+        }
+      }
 
       const snapshots = [];
       let gross = 0n;
@@ -110,6 +124,8 @@ export function checkoutService(db: Knex, currency: string) {
         });
       }
       toMinorNumber(gross);
+      const discountBps = coupon?.discount_bps ?? 0;
+      const discount = discountMinor(gross, discountBps);
       for (const item of snapshots) {
         const affected = await trx('products')
           .where({ id: item.product_id })
@@ -129,10 +145,12 @@ export function checkoutService(db: Knex, currency: string) {
         idempotency_key: idempotencyKey,
         request_fingerprint: fingerprint,
         currency,
-        discount_bps: 0,
+        coupon_id: coupon?.id ?? null,
+        coupon_code: coupon?.code ?? null,
+        discount_bps: discountBps,
         gross_minor: gross.toString(),
-        discount_minor: '0',
-        net_minor: gross.toString(),
+        discount_minor: discount.toString(),
+        net_minor: (gross - discount).toString(),
       });
       await trx('order_items').insert(
         snapshots.map((item) => ({ ...item, order_id: id })),

@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Checkout and Rewards Service
-  version: 0.3.0
+  version: 0.4.0
   description: >-
     Product, cart, checkout, and order APIs. Amounts are USD minor units represented as safe JSON integers.
     Cart totals use current product prices and are estimates. Carts do not reserve inventory.
-    Coupons and reporting will follow.
+    Includes single-use milestone coupons and read-only administrative reporting.
 servers:
   - url: /
 tags:
@@ -13,6 +13,8 @@ tags:
   - name: Products
   - name: Carts
   - name: Orders
+  - name: Administration
+    description: Administrative operations. Authentication and authorization are not implemented.
 paths:
   /health:
     get:
@@ -181,7 +183,7 @@ paths:
         success; no external payment call occurs. Idempotency keys are global and durable.
         Same key and normalized inputs replay the original order; changed cart/coupon inputs
         conflict. Failed attempts are not cached. Retry a timeout or 503 using the same key.
-        Coupon redemption is not implemented yet: any supplied code returns COUPON_INVALID.
+        One case-sensitive bearer coupon may be redeemed once; failure never consumes it.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -205,7 +207,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 128
-                  description: Trimmed, case-sensitive; empty/null is invalid. No codes are redeemable yet.
+                  description: Trimmed, case-sensitive bearer code; empty/null is invalid. One coupon per order.
             example: {}
       responses:
         '201':
@@ -234,7 +236,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: EMPTY_CART, INSUFFICIENT_INVENTORY, COUPON_INVALID, IDEMPOTENCY_KEY_REUSED, or CART_ALREADY_CHECKED_OUT (includes existing orderId).
+          description: EMPTY_CART, INSUFFICIENT_INVENTORY, COUPON_INVALID, COUPON_ALREADY_REDEEMED, IDEMPOTENCY_KEY_REUSED, or CART_ALREADY_CHECKED_OUT (includes existing orderId).
           content:
             application/json:
               schema:
@@ -286,6 +288,91 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/coupons:
+    post:
+      tags: [Administration]
+      operationId: generateCoupon
+      summary: Generate a coupon for the oldest eligible unrewarded milestone
+      description: >-
+        Administrative operation without authentication. Every n globally successful orders
+        unlocks a milestone; discounted orders count. Generation is explicit, not automatic.
+        One request creates one coupon, even when several milestones are eligible. Coupons
+        have no expiry and can be used by anyone possessing the code. Requests are not
+        idempotent across different milestones: a retry may generate the next eligible coupon.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+            example: {}
+      responses:
+        '201':
+          description: Coupon created for one previously unrewarded milestone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coupon'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: NO_ELIGIBLE_MILESTONE; no successful-order milestone remains unrewarded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '503':
+          $ref: '#/components/responses/Busy'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [Administration]
+      operationId: listCoupons
+      summary: List generated coupons and redemption associations
+      description: Read-only; sorted by milestone number. Administrative, without authentication.
+      responses:
+        '200':
+          description: All generated coupons, including unused codes and redeemed order IDs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [coupons]
+                properties:
+                  coupons:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Coupon'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/reports/summary:
+    get:
+      tags: [Administration]
+      operationId: getSummaryReport
+      summary: Read an all-time reconciled sales and rewards summary
+      description: >-
+        Administrative, without authentication. Reads one repeatable-read snapshot; never
+        generates coupons or mutates counters. Quantities include zero-sale products and
+        are sorted by product ID. Gross minus discounts equals net. Generated equals
+        available plus redeemed. Failed requests and checkout replays do not add sales.
+      responses:
+        '200':
+          description: Summary from committed orders and coupons.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Summary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/Busy'
         '500':
           $ref: '#/components/responses/InternalError'
 components:
@@ -407,6 +494,7 @@ components:
         [
           id,
           cartId,
+          coupon,
           createdAt,
           currency,
           discountBps,
@@ -428,11 +516,21 @@ components:
         currency:
           type: string
           enum: [USD]
+        coupon:
+          type: object
+          nullable: true
+          required: [id, code]
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
         discountBps:
           type: integer
           minimum: 0
           maximum: 10000
-          description: Currently zero; coupon redemption is pending.
+          description: Discount rate snapshot; zero when no coupon was used.
         grossMinor:
           $ref: '#/components/schemas/Money'
         discountMinor:
@@ -464,6 +562,7 @@ components:
         cartId: 7f9aad66-343a-4b93-bc63-1b1aa8a8aa42
         createdAt: '2026-09-10T12:00:00.000Z'
         currency: USD
+        coupon: null
         discountBps: 0
         grossMinor: 2598
         discountMinor: 0
@@ -474,6 +573,116 @@ components:
             quantity: 2
             unitPriceMinor: 1299
             lineTotalMinor: 2598
+    Coupon:
+      type: object
+      required:
+        [
+          id,
+          code,
+          milestoneNumber,
+          discountBps,
+          createdAt,
+          status,
+          redeemedOrderId,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: Case-sensitive bearer code.
+        milestoneNumber:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+          description: Milestone k unlocks after k times n successful orders.
+        discountBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          example: 1000
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [AVAILABLE, REDEEMED]
+        redeemedOrderId:
+          type: string
+          format: uuid
+          nullable: true
+    Summary:
+      type: object
+      required:
+        [
+          currency,
+          purchasedByProduct,
+          grossRevenueMinor,
+          totalDiscountsMinor,
+          netRevenueMinor,
+          coupons,
+          successfulOrders,
+        ]
+      properties:
+        currency:
+          type: string
+          enum: [USD]
+        purchasedByProduct:
+          type: array
+          items:
+            type: object
+            required: [productId, quantity]
+            properties:
+              productId:
+                type: string
+              quantity:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+        grossRevenueMinor:
+          $ref: '#/components/schemas/Money'
+        totalDiscountsMinor:
+          $ref: '#/components/schemas/Money'
+        netRevenueMinor:
+          $ref: '#/components/schemas/Money'
+        coupons:
+          type: object
+          required: [generated, available, redeemed]
+          properties:
+            generated:
+              type: integer
+              minimum: 0
+            available:
+              type: integer
+              minimum: 0
+            redeemed:
+              type: integer
+              minimum: 0
+        successfulOrders:
+          type: integer
+          minimum: 0
+      example:
+        currency: USD
+        purchasedByProduct:
+          - productId: coffee
+            quantity: 2
+          - productId: limited-print
+            quantity: 0
+          - productId: mug
+            quantity: 2
+          - productId: notebook
+            quantity: 3
+          - productId: tea
+            quantity: 1
+        grossRevenueMinor: 6848
+        totalDiscountsMinor: 150
+        netRevenueMinor: 6698
+        coupons:
+          generated: 2
+          available: 1
+          redeemed: 1
+        successfulOrders: 4
     Error:
       type: object
       required: [error]
