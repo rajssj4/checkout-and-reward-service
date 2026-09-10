@@ -3,6 +3,42 @@ let cart = null;
 let products = [];
 let lastCheckout = null;
 let busy = false;
+const storageKey = 'checkout-demo-v1';
+let savedOrderId = '';
+function saveSession() {
+  try {
+    sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        cartId: cart?.id,
+        lastCheckout,
+        orderId: savedOrderId,
+        coupon: $('coupon').value,
+      }),
+    );
+  } catch {
+    // The demo remains usable when browser storage is unavailable.
+  }
+}
+function restoreSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
+    const uuid = /^[a-f0-9-]{36}$/i;
+    if (uuid.test(saved.cartId || '')) cart = { id: saved.cartId };
+    if (
+      saved.lastCheckout &&
+      /^\/carts\/[a-f0-9-]{36}\/checkout$/i.test(saved.lastCheckout.path) &&
+      typeof saved.lastCheckout.key === 'string' &&
+      saved.lastCheckout.body &&
+      typeof saved.lastCheckout.body === 'object'
+    )
+      lastCheckout = saved.lastCheckout;
+    if (uuid.test(saved.orderId || '')) savedOrderId = saved.orderId;
+    if (typeof saved.coupon === 'string') $('coupon').value = saved.coupon;
+  } catch {
+    // Ignore malformed or unavailable storage.
+  }
+}
 const money = (minor) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
     minor / 100,
@@ -46,6 +82,10 @@ async function api(path, method = 'GET', body, key) {
         message: error.message,
         note: 'Outcome may be unknown. Retry checkout using the saved request.',
       };
+    if (status === 'NETWORK ERROR' && key)
+      throw new Error(
+        'Checkout response was not received; the order may have succeeded. Use Retry last checkout to recover the same order.',
+      );
     throw error;
   } finally {
     const detail = document.createElement('details');
@@ -71,6 +111,7 @@ async function run(action) {
   } catch (error) {
     notice(error.message, true);
   } finally {
+    saveSession();
     busy = false;
     document.querySelectorAll('button').forEach((b) => (b.disabled = false));
   }
@@ -144,10 +185,18 @@ async function refresh() {
           `<div class="row"><span>${escape(products.find((v) => v.id === p.productId)?.name || p.productId)}</span><strong>${p.quantity} purchased</strong></div>`,
       )
       .join('');
-  if (cart) cart = await api(`/carts/${cart.id}`);
+  if (cart) {
+    try {
+      cart = await api(`/carts/${cart.id}`);
+    } catch (error) {
+      if (error.message.includes('CART_NOT_FOUND')) cart = null;
+      else throw error;
+    }
+  }
   renderCart();
 }
 function showOrder(order) {
+  savedOrderId = order.id;
   $('order-id').value = order.id;
   $('order').innerHTML =
     `<h3>Order receipt</h3><p class="code">${escape(order.id)}</p>` +
@@ -157,6 +206,9 @@ function showOrder(order) {
           `<div class="row"><span>${escape(i.name)} × ${i.quantity}</span><strong>${money(i.lineTotalMinor)}</strong></div>`,
       )
       .join('') +
+    (order.coupon
+      ? `<p class="code">Coupon: ${escape(order.coupon.code)} · ${order.discountBps / 100}% off</p>`
+      : '') +
     `<p>Gross ${money(order.grossMinor)} − discount ${money(order.discountMinor)} = <strong>${money(order.netMinor)}</strong></p>`;
 }
 async function checkout(retry = false, twice = false) {
@@ -171,6 +223,7 @@ async function checkout(retry = false, twice = false) {
       body: code ? { couponCode: code } : {},
     };
   }
+  saveSession(); // Persist the exact request before sending it, including for lost responses.
   const { path, key, body } = lastCheckout;
   const results = await Promise.allSettled(
     Array.from({ length: twice ? 2 : 1 }, () => api(path, 'POST', body, key)),
@@ -190,7 +243,15 @@ async function checkout(retry = false, twice = false) {
         : `Order ${orders[0].id} returned. Check the activity log for initial (201) or replay (200).`,
     errors.length > 0,
   );
-  await refresh();
+  const checkoutMessage = $('notice').textContent;
+  try {
+    await refresh();
+  } catch (error) {
+    notice(
+      `${checkoutMessage} Store refresh failed: ${error.message}. Refresh all to update the display.`,
+      true,
+    );
+  }
 }
 async function race(useCoupon) {
   const catalog = await api('/products');
@@ -275,6 +336,7 @@ document.addEventListener('click', (event) => {
   if (!button || busy) return;
   if (button.dataset.coupon) {
     $('coupon').value = button.dataset.coupon;
+    saveSession();
     notice('Coupon selected. It will be validated at checkout.');
   }
   if (button.dataset.add)
@@ -318,7 +380,25 @@ document.addEventListener('click', (event) => {
       notice('Item removed.');
     });
 });
+$('coupon').addEventListener('change', saveSession);
+restoreSession();
 run(async () => {
   await refresh();
-  notice('Ready. Add a product to create your first cart.');
+  if (savedOrderId) {
+    try {
+      showOrder(await api(`/orders/${savedOrderId}`));
+    } catch (error) {
+      savedOrderId = '';
+      notice(
+        `Store loaded, but saved order could not be retrieved: ${error.message}`,
+        true,
+      );
+      return;
+    }
+  }
+  notice(
+    cart
+      ? 'Your cart has been restored. Retry last checkout is available for your saved request.'
+      : 'Ready. Add a product to create your first cart.',
+  );
 });

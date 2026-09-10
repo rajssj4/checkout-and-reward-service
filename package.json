@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:integration": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run tests/database.test.ts tests/checkout.test.ts tests/rewards.test.ts"
+    "test:integration": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run tests/database.test.ts tests/checkout.test.ts tests/rewards.test.ts",
+    "test:browser": "node tests/browser/smoke.cjs && node tests/browser/recovery.cjs"
   },
   "dependencies": {
     "express": "5.2.1",
@@ -32,6 +33,7 @@
     "@types/pg": "8.23.1",
     "@types/supertest": "7.2.1",
     "@types/swagger-ui-express": "4.1.8",
+    "playwright": "1.63.0",
     "prettier": "3.9.6",
     "supertest": "7.2.2",
     "tsx": "4.23.13",

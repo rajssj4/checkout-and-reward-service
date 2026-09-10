@@ -159,6 +159,20 @@ The timing above includes the additional Docker/Vercel image work. Images were b
 
 ## Browser demo
 
-Open `/` on the running service for a single-page demo: products, editable cart, checkout and saved order lookup, administrator coupon generation, and reconciled reporting. “Send checkout twice” submits concurrent requests with one idempotency key; “Retry last checkout” reuses the exact last request. Competing-customer experiments use separate carts to exercise stock and coupon contention. These actions create real demo orders and consume inventory; they do not reset data. The request log shows HTTP statuses, error codes, and responses. Cart and retry state lasts until the page is reloaded.
+Open `/` on the running service for a single-page demo: products, editable cart, checkout and saved order lookup, administrator coupon generation, and reconciled reporting. “Send checkout twice” submits concurrent requests with one idempotency key; “Retry last checkout” reuses the exact last request. Competing-customer experiments use separate carts to exercise stock and coupon contention. These actions create real demo orders and consume inventory; they do not reset data. The request log shows HTTP statuses, error codes, and responses. Cart ID, latest order ID, coupon input, and the exact last checkout request are stored in sessionStorage for this browser tab and restored on reload. If browser storage is blocked, state lasts only until reload.
 
 Browser verification: exercised cart quantity updates/removal, concurrent identical checkouts, exact retry, order lookup, ineligible/eligible coupon generation, two-cart coupon contention, and two-cart stock contention in headless Chrome against the Vercel image. Desktop and 390px mobile layouts were checked with no browser errors.
+
+### Repeatable browser checks
+
+`npm run test:browser` exercises real UI controls, stock/coupon contention, invalid inputs, and lost checkout responses followed by reload and exact retry. It also simulates a report failure after checkout success and checks mobile/tablet/desktop overflow. These tests create orders and consume stock: run them only against a fresh isolated evaluation database with default reward settings.
+
+```bash
+npx playwright install chromium
+PORT=33003 POSTGRES_PORT=55442 docker compose --env-file .env.example -p checkout-browser-test -f compose.yaml -f compose.vercel.yaml up --build -d --wait
+BROWSER_BASE_URL=http://127.0.0.1:33003 npm run test:browser
+# Remove only this isolated test database after testing:
+PORT=33003 POSTGRES_PORT=55442 docker compose --env-file .env.example -p checkout-browser-test -f compose.yaml -f compose.vercel.yaml down --volumes
+```
+
+To use an existing Chrome installation, set `BROWSER_EXECUTABLE` to its executable path instead of installing Chromium. The browser tests are separate from `npm test` and require a running service.
