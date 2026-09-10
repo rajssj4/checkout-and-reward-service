@@ -23,3 +23,11 @@
 **Why:** HTTP tests remain independent of infrastructure; integration tests exercise actual PostgreSQL constraints and transactions.
 
 **Trade-off:** Run both test commands for complete verification. The integration database user needs permission to create schemas.
+
+## Cart prices, inventory, and competing edits
+
+**Choice:** Carts show current prices and do not reserve stock. PUT sets an absolute quantity (1–1,000,000); zero requires DELETE. Edits lock the cart row and reject completed carts. Reads use a repeatable-read snapshot.
+
+**Why:** Retries do not increment quantities, concurrent edits serialize per cart, and stale availability stays visible. Reservations and locked-in prices add lifecycle complexity.
+
+**Trade-off:** Checkout must revalidate prices/stock and acquire the same cart lock. BigInt computes totals exactly; values outside safe JSON integer bounds are rejected, rolling back edits.

@@ -1,6 +1,6 @@
 # Checkout and Reward Service
 
-Node.js 24, TypeScript, Express, PostgreSQL, and Knex. Initial setup includes configuration validation, versioned migrations, five seed products, health API, Swagger UI, and focused setup tests. Cart, checkout, coupon, and reporting APIs are next.
+Node.js 24, TypeScript, Express, PostgreSQL, and Knex. Initial setup includes configuration validation, versioned migrations, five seed products, health API, Swagger UI, and focused setup tests. Product listing and cart APIs are implemented. Checkout, coupon, order, and reporting APIs are next.
 
 ## Setup
 
@@ -42,7 +42,7 @@ curl http://localhost:3000/health
 | DISCOUNT_BPS          | 1000 (10%); integer 0–10000                                      |
 | CURRENCY              | USD only                                                         |
 
-Reward settings are persisted at first initialization; subsequent startup/migration rejects mismatches. Seed reruns insert missing products without resetting inventory. Amounts are stored as PostgreSQL BIGINT minor units, which the driver returns as strings to preserve precision. API money calculations are not implemented yet. Environment variables override `.env`.
+Reward settings are persisted at first initialization; subsequent startup/migration rejects mismatches. Seed reruns insert missing products without resetting inventory. Amounts are stored as PostgreSQL BIGINT minor units, which the driver returns as strings to preserve precision. Cart calculations use BigInt, then convert to safe JSON integers; out-of-range totals are rejected. Environment variables override `.env`.
 
 ## Verification and build
 
@@ -67,4 +67,21 @@ Integration tests create a unique schema in the dedicated test database and remo
 - `tests/`: HTTP/configuration and real PostgreSQL integration tests.
 - [DECISIONS.md](DECISIONS.md): specific design choices and trade-offs.
 
-This is a fresh setup repository with one initial commit. Business endpoints and their concurrency guarantees remain to be implemented.
+Product and cart APIs are implemented. Checkout, order, coupon, and reporting guarantees remain to be implemented.
+
+## Products and carts
+
+Run `npm run db:migrate` after updating the code to add the cart tables. Open `/docs` to try the documented routes.
+
+```sh
+curl http://localhost:3000/products
+curl -X POST http://localhost:3000/carts -H 'Content-Type: application/json' -d '{}'
+# Substitute the returned cart ID below.
+curl -X PUT http://localhost:3000/carts/CART_ID/items/coffee -H 'Content-Type: application/json' -d '{"quantity":2}'
+curl http://localhost:3000/carts/CART_ID
+curl -X DELETE http://localhost:3000/carts/CART_ID/items/coffee
+```
+
+PUT replaces quantity; it never increments it. Cart edits check current stock but do not reserve it. Views show current prices, line totals, gross totals, and per-item availability. Completed carts are readable but cannot be edited. There is no checkout endpoint yet.
+
+Integration tests also cover cart CRUD, invalid input, price/stock changes, competing HTTP edits, completed-cart protection, and rollback when totals exceed safe JSON integer bounds.

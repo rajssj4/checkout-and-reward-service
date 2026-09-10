@@ -11,9 +11,12 @@ try {
   await db.destroy();
   throw error;
 }
-const server = createApp().listen(config.PORT, () => {
-  console.info(`Checkout service listening on port ${config.PORT}`);
-});
+const server = createApp({ db, currency: config.CURRENCY }).listen(
+  config.PORT,
+  () => {
+    console.info(`Checkout service listening on port ${config.PORT}`);
+  },
+);
 server.on('error', (error) => {
   console.error(error);
   process.exitCode = 1;

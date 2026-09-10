@@ -1,18 +1,26 @@
 openapi: 3.0.3
 info:
   title: Checkout and Rewards Service
-  version: 0.1.0
-  description: Initial setup API. Domain endpoints will be added during implementation.
+  version: 0.2.0
+  description: >-
+    Product and cart APIs. Amounts are USD minor units represented as safe JSON integers.
+    Cart totals use current product prices and are estimates. Carts do not reserve inventory.
+    Checkout, orders, coupons, and reporting will follow.
 servers:
   - url: /
+tags:
+  - name: Health
+  - name: Products
+  - name: Carts
 paths:
   /health:
     get:
+      tags: [Health]
       operationId: getHealth
       summary: Service liveness
       responses:
         '200':
-          description: HTTP service is running; this does not continuously check database readiness.
+          description: HTTP service is running; not a continuous database readiness check.
           content:
             application/json:
               schema:
@@ -22,10 +30,256 @@ paths:
                   status:
                     type: string
                     enum: [ok]
-              example:
-                status: ok
+  /products:
+    get:
+      tags: [Products]
+      operationId: listProducts
+      summary: List products with current price and inventory
+      responses:
+        '200':
+          description: Products sorted by ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [products]
+                properties:
+                  products:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /carts:
+    post:
+      tags: [Carts]
+      operationId: createCart
+      summary: Create an empty cart
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+            example: {}
+      responses:
+        '201':
+          description: Empty OPEN cart created.
+          headers:
+            Location:
+              schema:
+                type: string
+              example: /carts/7f9aad66-343a-4b93-bc63-1b1aa8a8aa42
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '503':
+          $ref: '#/components/responses/Busy'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /carts/{cartId}:
+    parameters:
+      - $ref: '#/components/parameters/CartId'
+    get:
+      tags: [Carts]
+      operationId: getCart
+      summary: View cart with current prices and availability
+      description: >-
+        Uses a consistent database snapshot. isAvailable is false when current stock is
+        below the requested quantity. No inventory is reserved. Completed carts remain
+        readable; these are current estimates, not historical order totals.
+      responses:
+        '200':
+          $ref: '#/components/responses/Cart'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/Busy'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /carts/{cartId}/items/{productId}:
+    parameters:
+      - $ref: '#/components/parameters/CartId'
+      - $ref: '#/components/parameters/ProductId'
+    put:
+      tags: [Carts]
+      operationId: setCartItem
+      summary: Add an item or replace its quantity
+      description: >-
+        Quantity is absolute, not incremental. Repeating the same request does not add
+        more units. Stock is checked during the edit but is not reserved. Unknown fields
+        are rejected. Use DELETE to remove an item; zero is not valid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [quantity]
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000000
+            example:
+              quantity: 2
+      responses:
+        '200':
+          $ref: '#/components/responses/Cart'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '503':
+          $ref: '#/components/responses/Busy'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Carts]
+      operationId: removeCartItem
+      summary: Remove an item from an open cart
+      description: Repeated removal of an absent item, including an unknown product ID, returns 204 on an open cart.
+      responses:
+        '204':
+          description: Item removed or already absent. No response body.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Busy'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
+  parameters:
+    CartId:
+      name: cartId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: coffee
   schemas:
+    Money:
+      type: integer
+      minimum: 0
+      maximum: 9007199254740991
+      description: Integer USD minor units (100 equals one dollar).
+      example: 1299
+    Product:
+      type: object
+      required: [id, name, unitPriceMinor, inventory, currency]
+      properties:
+        id:
+          type: string
+          example: coffee
+        name:
+          type: string
+          example: Coffee beans
+        unitPriceMinor:
+          $ref: '#/components/schemas/Money'
+        inventory:
+          type: integer
+          minimum: 0
+          example: 20
+        currency:
+          type: string
+          enum: [USD]
+    CartItem:
+      type: object
+      required:
+        [
+          productId,
+          name,
+          quantity,
+          unitPriceMinor,
+          lineTotalMinor,
+          availableInventory,
+          isAvailable,
+        ]
+      properties:
+        productId:
+          type: string
+          example: coffee
+        name:
+          type: string
+          example: Coffee beans
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          example: 2
+        unitPriceMinor:
+          $ref: '#/components/schemas/Money'
+        lineTotalMinor:
+          $ref: '#/components/schemas/Money'
+        availableInventory:
+          type: integer
+          minimum: 0
+        isAvailable:
+          type: boolean
+    Cart:
+      type: object
+      required: [id, status, createdAt, currency, items, grossMinor]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [OPEN, CHECKED_OUT]
+        createdAt:
+          type: string
+          format: date-time
+        currency:
+          type: string
+          enum: [USD]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+        grossMinor:
+          $ref: '#/components/schemas/Money'
+      example:
+        id: 7f9aad66-343a-4b93-bc63-1b1aa8a8aa42
+        status: OPEN
+        createdAt: '2026-09-10T12:00:00.000Z'
+        currency: USD
+        items:
+          - productId: coffee
+            name: Coffee beans
+            quantity: 2
+            unitPriceMinor: 1299
+            lineTotalMinor: 2598
+            availableInventory: 20
+            isAvailable: true
+        grossMinor: 2598
     Error:
       type: object
       required: [error]
@@ -38,3 +292,62 @@ components:
               type: string
             message:
               type: string
+            details:
+              type: object
+              additionalProperties: true
+  responses:
+    Cart:
+      description: Cart with current estimated prices and totals, items sorted by product ID.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Cart'
+    BadRequest:
+      description: VALIDATION_ERROR, INVALID_JSON, or AMOUNT_OUT_OF_RANGE (an amount exceeds safe JSON integer bounds).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: CART_NOT_FOUND, or PRODUCT_NOT_FOUND when setting an item.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: CART_ALREADY_CHECKED_OUT, or INSUFFICIENT_INVENTORY when setting an item.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: INSUFFICIENT_INVENTORY
+              message: Requested quantity exceeds available inventory.
+              details:
+                productId: coffee
+                requested: 21
+                available: 20
+    TooLarge:
+      description: PAYLOAD_TOO_LARGE (request body exceeds 32 KB).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Busy:
+      description: SERVICE_BUSY after lock timeout, deadlock, or serialization conflict; retry the request.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          example: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Unexpected server error, with no database details exposed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

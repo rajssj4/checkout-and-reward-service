@@ -1,6 +1,7 @@
 import type { Knex } from 'knex';
 import type { Config } from '../config.js';
 import * as foundation from './migrations/001-foundation.js';
+import * as carts from './migrations/002-carts.js';
 
 export async function assertSettings(db: Knex, config: Config) {
   const settings = await db('settings').where({ id: 1 }).first();
@@ -17,12 +18,20 @@ export async function assertSettings(db: Knex, config: Config) {
 }
 
 export async function migrate(db: Knex, config: Config) {
+  const migrations: Record<string, Knex.Migration> = {
+    '001-foundation': foundation,
+    '002-carts': carts,
+  };
   // Explicit source works in both TypeScript development and compiled JavaScript.
   await db.migrate.latest({
     migrationSource: {
-      getMigrations: async () => ['001-foundation'],
+      getMigrations: async () => Object.keys(migrations),
       getMigrationName: (name: string) => name,
-      getMigration: async (_name: string) => foundation,
+      getMigration: async (name: string) => {
+        const migration = migrations[name];
+        if (!migration) throw new Error(`Unknown migration: ${name}`);
+        return migration;
+      },
     },
   });
   await db.transaction(async (trx) => {
