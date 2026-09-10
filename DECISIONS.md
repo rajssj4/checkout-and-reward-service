@@ -90,8 +90,8 @@
 
 ## Container packaging and database lifecycle
 
-**Choice:** Separate standard and Vercel Dockerfiles package the same compiled service as a non-root process. Compose runs migration/seed once before starting the API. Vercel uses external PostgreSQL and a separate migration release step, with a smaller configurable connection pool.
+**Choice:** Separate standard and Vercel Dockerfiles package the same compiled service as a non-root process. Compose runs migration/seed once before starting the API. Vercel uses external PostgreSQL and automatically migrates/seeds before startup, with a smaller configurable connection pool.
 
-**Why:** Container builds need no database credentials, and autoscaled instances must not race to mutate schema or seed data at startup.
+**Why:** An empty deployed database must initialize without local commands. A dedicated PostgreSQL session advisory lock serializes startup initialization; failures stop startup and repeatable seed preserves sold stock. Builds need no database credentials.
 
-**Trade-off:** Both images use Node 24 Alpine; current runtime dependencies are pure JavaScript. Recheck musl compatibility if native dependencies are introduced. The Vercel container path is beta and requires project PORT=3000 plus an external database. Image definitions duplicate a small build recipe so each remains independently deployable.
+**Trade-off:** Vercel startup needs a direct database connection and DDL permissions, adds cold-start work, and waits up to 60 seconds for the initialization lock. A separate release job is preferable at production scale. Both images use Node 24 Alpine; current runtime dependencies are pure JavaScript. Recheck musl compatibility if native dependencies are introduced. The Vercel container path is beta and requires project PORT=3000 plus an external database. Image definitions duplicate a small build recipe so each remains independently deployable.

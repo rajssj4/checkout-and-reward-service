@@ -10,7 +10,7 @@
 | `compose.vercel.yaml` | Local override to exercise the Vercel image against the same stack                                |
 | `.dockerignore`       | Excludes secrets, Git metadata, local dependencies, and build outputs                             |
 
-Both images use `node:24.21.0-alpine` and contain compiled migrations and Swagger files. Neither contains PostgreSQL or credentials. Both run `node dist/server.js`, accept runtime environment variables, and handle SIGTERM. Their health check is API liveness, not a continuous database check.
+Both images use `node:24.21.0-alpine` and contain compiled migrations and Swagger files. Neither contains PostgreSQL or credentials. The Vercel image first runs `docker/start-vercel.sh` to initialize its database. Both ultimately run `node dist/server.js`, accept runtime environment variables, and handle SIGTERM. Their health check is API liveness, not a continuous database check.
 
 ## Run everything locally
 
@@ -69,7 +69,7 @@ Create `.env.production` locally with `DATABASE_URL` and matching reward/currenc
 Vercel documents OCI container deployments through a root-level `Dockerfile.vercel`, currently in beta. It builds the image and routes requests to its HTTP server. See [Vercel container images](https://vercel.com/docs/functions/container-images).
 
 1. Provision external PostgreSQL accessible from Vercel; choose a region near the application. The Compose database and its local volume are not deployed to Vercel.
-2. Prepare the database by running the compiled migration command above using that database's direct connection URL. Optionally seed the five evaluation products.
+2. Use a direct PostgreSQL connection URL with schema creation permissions. The Vercel startup script automatically runs pending migrations and seeds the five evaluation products before starting the API. No local migration command is required.
 3. Import this repository in Vercel. Set the project root to the directory containing `Dockerfile.vercel`. Use the Container deployment preset if prompted; no Express serverless adapter or custom rewrite configuration is required for this container path.
 4. Set runtime environment variables for each intended environment:
 
@@ -84,7 +84,7 @@ Vercel documents OCI container deployments through a root-level `Dockerfile.verc
 
 5. Deploy through the Vercel dashboard or CLI. Verify `/health`, `/docs`, cart creation, checkout/replay, and the admin summary on the deployed URL.
 
-Vercel's documented container port defaults to 80 unless `PORT` is configured. Its instances scale down and receive SIGTERM; durable state stays in PostgreSQL. Do not run migrations during container builds, requests, or every instance startup. See the [port and lifecycle contract](https://vercel.com/docs/functions/container-images#port-resolution).
+Vercel's documented container port defaults to 80 unless `PORT` is configured. Its instances scale down and receive SIGTERM; durable state stays in PostgreSQL. Startup initialization is serialized with a PostgreSQL session advisory lock (60-second wait limit); use a direct connection, not a transaction pooler. Initialization failure prevents the API from starting. Applied migrations are skipped, and seeding preserves existing inventory. For production scale, move initialization to a separate release job. See the [port and lifecycle contract](https://vercel.com/docs/functions/container-images#port-resolution).
 
 Use separate databases/branches for Preview and Production so evaluation orders cannot consume production stock or coupons. If using a transaction pooler, verify support for PostgreSQL transaction-scoped advisory locks and required session settings; use a direct connection for migrations. No in-process lock or local disk state is required for correctness.
 
