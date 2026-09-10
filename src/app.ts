@@ -34,6 +34,9 @@ export function createApp(dependencies?: { db: Knex; currency: string }) {
     app.use(orderRoutes(dependencies.db, dependencies.currency));
     app.use(adminRoutes(dependencies.db, dependencies.currency));
   }
+  app.use(
+    express.static(fileURLToPath(new URL('../public/', import.meta.url))),
+  );
   app.use((_request, response) => {
     response.status(404).json({
       error: { code: 'ROUTE_NOT_FOUND', message: 'Route not found.' },

@@ -156,3 +156,9 @@ Approximate time: **2 hours 25 minutes**, using the agreed calculation:
 Run the API and PostgreSQL together with `docker compose up --build -d --wait`. Use `Dockerfile` for a standard production image or `Dockerfile.vercel` for Vercel's container deployment path. See [deployment instructions](docs/DEPLOYMENT.md) for image builds, migration/seed steps, local Vercel-image testing, and external PostgreSQL configuration.
 
 The timing above includes the additional Docker/Vercel image work. Images were built locally as `checkout-and-reward-service:local` and `checkout-and-reward-service:vercel`; they have not been published or deployed to Vercel.
+
+## Browser demo
+
+Open `/` on the running service for a single-page demo: products, editable cart, checkout and saved order lookup, administrator coupon generation, and reconciled reporting. “Send checkout twice” submits concurrent requests with one idempotency key; “Retry last checkout” reuses the exact last request. Competing-customer experiments use separate carts to exercise stock and coupon contention. These actions create real demo orders and consume inventory; they do not reset data. The request log shows HTTP statuses, error codes, and responses. Cart and retry state lasts until the page is reloaded.
+
+Browser verification: exercised cart quantity updates/removal, concurrent identical checkouts, exact retry, order lookup, ineligible/eligible coupon generation, two-cart coupon contention, and two-cart stock contention in headless Chrome against the Vercel image. Desktop and 390px mobile layouts were checked with no browser errors.

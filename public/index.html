@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Checkout & Rewards · Demo</title>
+    <link rel="stylesheet" href="/demo.css" />
+    <script src="/demo.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">THE CHECKOUT LAB</p>
+          <h1>A small store.<br />A reliable checkout.</h1>
+          <p>
+            Build a cart, earn rewards, and watch the business rules at work.
+          </p>
+        </div>
+        <a href="/docs">API documentation ↗</a>
+      </header>
+      <div id="notice" role="status" aria-live="polite">
+        Connecting to the store…
+      </div>
+      <div class="grid">
+        <section>
+          <div class="heading">
+            <h2>01 · Products</h2>
+            <button id="refresh">Refresh all</button>
+          </div>
+          <p>
+            Stock is reserved only when checkout succeeds. Prices are rechecked
+            at checkout.
+          </p>
+          <div id="products"></div>
+        </section>
+        <section>
+          <div class="heading">
+            <h2>02 · Your cart</h2>
+            <button id="new-cart">New cart</button>
+          </div>
+          <p id="cart-id">Create a cart to get started.</p>
+          <div id="cart"></div>
+          <label for="coupon">Coupon code (optional)</label
+          ><input
+            id="coupon"
+            placeholder="Select a reward below or paste a code"
+            autocomplete="off"
+          />
+          <div class="actions">
+            <button id="checkout" class="primary">Place order</button
+            ><button id="retry">Retry last checkout</button
+            ><button id="double">Send checkout twice</button>
+          </div>
+          <p class="hint">
+            “Send checkout twice” sends two concurrent requests with the same
+            key. A successful pair should return the same order, with inventory
+            deducted once. Retry reuses the exact last request, even after a
+            timeout.
+          </p>
+          <div id="order"></div>
+          <form id="lookup">
+            <label for="order-id">Retrieve an order</label>
+            <div class="actions">
+              <input id="order-id" placeholder="Order UUID" required /><button>
+                Load order
+              </button>
+            </div>
+          </form>
+        </section>
+        <section>
+          <div class="heading">
+            <h2>03 · Rewards <small>Admin</small></h2>
+            <button id="generate">Generate coupon</button>
+          </div>
+          <p>
+            Each eligible order milestone unlocks one coupon. Generation before
+            eligibility returns a conflict.
+          </p>
+          <div id="coupons"></div>
+        </section>
+        <section>
+          <div class="heading">
+            <h2>04 · Store summary <small>Admin</small></h2>
+          </div>
+          <p>
+            Read directly from committed orders and coupons. Refreshing does not
+            change the report.
+          </p>
+          <div id="report"></div>
+        </section>
+      </div>
+      <section class="experiments">
+        <h2>Try competing customers</h2>
+        <p>
+          These actions create two new carts and submit checkouts concurrently.
+          Successful orders consume real demo stock and count toward rewards.
+        </p>
+        <div class="actions">
+          <label>Product<select id="race-product"></select></label
+          ><button id="stock-race">Compete for remaining stock</button
+          ><button id="coupon-race">Compete for entered coupon</button>
+        </div>
+        <p class="hint">
+          Stock test: each cart requests all observed remaining stock, so at
+          most one should succeed. Coupon test: each cart requests one unit;
+          select a product with at least two available and enter an available
+          coupon above.
+        </p>
+        <pre id="race-result">No experiment run yet.</pre>
+      </section>
+      <section>
+        <div class="heading">
+          <h2>Request activity</h2>
+          <button id="clear">Clear log</button>
+        </div>
+        <p>
+          HTTP status, error codes, and response bodies make retries and
+          conflicts visible.
+        </p>
+        <div id="activity" aria-live="polite"></div>
+      </section>
+      <footer>
+        Single-page evaluation demo · Administrative controls are intentionally
+        unauthenticated.
+      </footer>
+    </main>
+  </body>
+</html>
