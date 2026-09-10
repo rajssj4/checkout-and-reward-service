@@ -1,6 +1,6 @@
 # Checkout and Reward Service
 
-Node.js 24, TypeScript, Express, PostgreSQL, and Knex. Initial setup includes configuration validation, versioned migrations, five seed products, health API, Swagger UI, and focused setup tests. Product listing and cart APIs are implemented. Checkout, coupon, order, and reporting APIs are next.
+Node.js 24, TypeScript, Express, PostgreSQL, and Knex. Initial setup includes configuration validation, versioned migrations, five seed products, health API, Swagger UI, and focused setup tests. Product listing and cart APIs are implemented. Atomic checkout and immutable order retrieval are implemented; coupons and reporting are next.
 
 ## Setup
 
@@ -67,11 +67,11 @@ Integration tests create a unique schema in the dedicated test database and remo
 - `tests/`: HTTP/configuration and real PostgreSQL integration tests.
 - [DECISIONS.md](DECISIONS.md): specific design choices and trade-offs.
 
-Product and cart APIs are implemented. Checkout, order, coupon, and reporting guarantees remain to be implemented.
+Product and cart APIs are implemented. Coupon redemption/generation and reporting remain to be implemented.
 
 ## Products and carts
 
-Run `npm run db:migrate` after updating the code to add the cart tables. Open `/docs` to try the documented routes.
+Run `npm run db:migrate` after updating the code to add cart and order tables. Open `/docs` to try the documented routes.
 
 ```sh
 curl http://localhost:3000/products
@@ -82,6 +82,22 @@ curl http://localhost:3000/carts/CART_ID
 curl -X DELETE http://localhost:3000/carts/CART_ID/items/coffee
 ```
 
-PUT replaces quantity; it never increments it. Cart edits check current stock but do not reserve it. Views show current prices, line totals, gross totals, and per-item availability. Completed carts are readable but cannot be edited. There is no checkout endpoint yet.
+PUT replaces quantity; it never increments it. Cart edits check current stock but do not reserve it. Views show current prices, line totals, gross totals, and per-item availability. Completed carts are readable but cannot be edited. Checkout rechecks prices and stock before creating an order.
 
 Integration tests also cover cart CRUD, invalid input, price/stock changes, competing HTTP edits, completed-cart protection, and rollback when totals exceed safe JSON integer bounds.
+
+## Checkout and orders
+
+```sh
+# Use a filled cart ID from the cart workflow; use a new key for each new checkout.
+curl -X POST http://localhost:3000/carts/CART_ID/checkout -H 'Content-Type: application/json' -H 'Idempotency-Key: my-checkout-001' -d '{}'
+# Repeat the exact request to replay the order without buying again.
+curl -X POST http://localhost:3000/carts/CART_ID/checkout -H 'Content-Type: application/json' -H 'Idempotency-Key: my-checkout-001' -d '{}'
+curl http://localhost:3000/orders/ORDER_ID
+```
+
+First success returns 201, replay returns 200 with the same order, and a different key for the completed cart returns 409 with its existing order ID. A key reused for another cart or changed coupon input returns 409 IDEMPOTENCY_KEY_REUSED. Keys are global, case-sensitive, 1–128 printable ASCII characters without spaces, and retained with successful orders. Failed attempts are not cached. Retry timeouts/503 with the same key.
+
+Checkout locks its idempotency key, cart, and products (in product-ID order) inside a PostgreSQL transaction. It snapshots current product names/prices, decrements inventory with guarded updates, creates the order, and closes the cart. Commit is payment success. A commit failure rolls everything back. No external payment call is made. Orders retain exact purchase details after product changes; discounts are currently zero. Supplied coupon codes are rejected as COUPON_INVALID until rewards are implemented.
+
+`npm run test:integration` also exercises checkout across two independent connection pools: repeated/same-key requests, different-key conflicts, the last inventory unit, edit/checkout competition, changed prices, unsafe amounts, and a deferred database trigger that forces COMMIT to fail. The trigger exists only in an isolated test schema; the production service has no failure-injection endpoint.

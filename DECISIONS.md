@@ -31,3 +31,19 @@
 **Why:** Retries do not increment quantities, concurrent edits serialize per cart, and stale availability stays visible. Reservations and locked-in prices add lifecycle complexity.
 
 **Trade-off:** Checkout must revalidate prices/stock and acquire the same cart lock. BigInt computes totals exactly; values outside safe JSON integer bounds are rejected, rolling back edits.
+
+## Atomic checkout and durable retries
+
+**Choice:** One PostgreSQL transaction locks the idempotency key, cart, then products in ID order; guarded stock updates, order snapshots, and cart closure commit together. Unique constraints enforce one order per cart/key. Commit is payment success.
+
+**Why:** Unlike process-local locks, database locks coordinate multiple instances. Transaction-level advisory locks serialize requests even before a key has a persisted result ([PostgreSQL locking](https://www.postgresql.org/docs/17/explicit-locking.html)).
+
+**Trade-off:** Keys are global and retained with successful orders. Matching retries return the original order; changed inputs conflict. Failures are not cached. Lock timeouts return 503 for retry with the same key. Real payments require a separate recoverable workflow.
+
+## Purchase snapshots and money
+
+**Choice:** Snapshot product names, current unit prices, quantities, and line/order totals. Use BigInt arithmetic and safe integer JSON amounts. Discounts are zero until coupons are implemented; supplied codes fail explicitly.
+
+**Why:** Historical purchases must remain explainable after product edits. Floating-point currency arithmetic and reading live product prices for orders would violate this.
+
+**Trade-off:** Snapshot data is duplicated intentionally. Coupon calculation/rounding and reporting are still pending.

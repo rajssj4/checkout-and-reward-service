@@ -6,6 +6,7 @@ import { ZodError } from 'zod';
 import { DomainError } from './domain/errors.js';
 import { cartService } from './services/carts.js';
 import { cartRoutes } from './routes/carts.js';
+import { orderRoutes } from './routes/orders.js';
 
 export function createApp(dependencies?: { db: Knex; currency: string }) {
   const app = express();
@@ -27,8 +28,10 @@ export function createApp(dependencies?: { db: Knex; currency: string }) {
   app.get('/health', (_request, response) => {
     response.json({ status: 'ok' });
   });
-  if (dependencies)
+  if (dependencies) {
     app.use(cartRoutes(cartService(dependencies.db, dependencies.currency)));
+    app.use(orderRoutes(dependencies.db, dependencies.currency));
+  }
   app.use((_request, response) => {
     response.status(404).json({
       error: { code: 'ROUTE_NOT_FOUND', message: 'Route not found.' },

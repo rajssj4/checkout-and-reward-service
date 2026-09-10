@@ -1,17 +1,18 @@
 openapi: 3.0.3
 info:
   title: Checkout and Rewards Service
-  version: 0.2.0
+  version: 0.3.0
   description: >-
-    Product and cart APIs. Amounts are USD minor units represented as safe JSON integers.
+    Product, cart, checkout, and order APIs. Amounts are USD minor units represented as safe JSON integers.
     Cart totals use current product prices and are estimates. Carts do not reserve inventory.
-    Checkout, orders, coupons, and reporting will follow.
+    Coupons and reporting will follow.
 servers:
   - url: /
 tags:
   - name: Health
   - name: Products
   - name: Carts
+  - name: Orders
 paths:
   /health:
     get:
@@ -167,6 +168,126 @@ paths:
           $ref: '#/components/responses/Busy'
         '500':
           $ref: '#/components/responses/InternalError'
+  /carts/{cartId}/checkout:
+    parameters:
+      - $ref: '#/components/parameters/CartId'
+    post:
+      tags: [Orders]
+      operationId: checkoutCart
+      summary: Place an order atomically
+      description: >-
+        Uses current prices and rechecks stock. Success creates one immutable order,
+        decrements inventory, and closes the cart in one transaction. Commit is payment
+        success; no external payment call occurs. Idempotency keys are global and durable.
+        Same key and normalized inputs replay the original order; changed cart/coupon inputs
+        conflict. Failed attempts are not cached. Retry a timeout or 503 using the same key.
+        Coupon redemption is not implemented yet: any supplied code returns COUPON_INVALID.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique client-generated key, 1–128 printable ASCII characters without spaces.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[!-~]{1,128}$'
+          example: checkout-attempt-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                couponCode:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  description: Trimmed, case-sensitive; empty/null is invalid. No codes are redeemable yet.
+            example: {}
+      responses:
+        '201':
+          description: Order committed successfully.
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '200':
+          description: Original order replayed for the same successful idempotency key and input.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: EMPTY_CART, INSUFFICIENT_INVENTORY, COUPON_INVALID, IDEMPOTENCY_KEY_REUSED, or CART_ALREADY_CHECKED_OUT (includes existing orderId).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                completedCart:
+                  value:
+                    error:
+                      code: CART_ALREADY_CHECKED_OUT
+                      message: Cart is already checked out.
+                      details:
+                        orderId: 7f9aad66-343a-4b93-bc63-1b1aa8a8aa42
+                changedKeyInput:
+                  value:
+                    error:
+                      code: IDEMPOTENCY_KEY_REUSED
+                      message: Idempotency key was used with different checkout inputs.
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '503':
+          $ref: '#/components/responses/Busy'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /orders/{orderId}:
+    get:
+      tags: [Orders]
+      operationId: getOrder
+      summary: Retrieve immutable purchase details
+      description: Product names, prices, quantities, and totals come from order snapshots, never current product data.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successful order with items sorted by product ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: ORDER_NOT_FOUND.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   parameters:
     CartId:
@@ -280,6 +401,79 @@ components:
             availableInventory: 20
             isAvailable: true
         grossMinor: 2598
+    Order:
+      type: object
+      required:
+        [
+          id,
+          cartId,
+          createdAt,
+          currency,
+          discountBps,
+          grossMinor,
+          discountMinor,
+          netMinor,
+          items,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        cartId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        currency:
+          type: string
+          enum: [USD]
+        discountBps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Currently zero; coupon redemption is pending.
+        grossMinor:
+          $ref: '#/components/schemas/Money'
+        discountMinor:
+          $ref: '#/components/schemas/Money'
+        netMinor:
+          $ref: '#/components/schemas/Money'
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+              [productId, name, quantity, unitPriceMinor, lineTotalMinor]
+            properties:
+              productId:
+                type: string
+              name:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 1000000
+              unitPriceMinor:
+                $ref: '#/components/schemas/Money'
+              lineTotalMinor:
+                $ref: '#/components/schemas/Money'
+      example:
+        id: a460eae5-631c-4a28-922d-b21af7a046a3
+        cartId: 7f9aad66-343a-4b93-bc63-1b1aa8a8aa42
+        createdAt: '2026-09-10T12:00:00.000Z'
+        currency: USD
+        discountBps: 0
+        grossMinor: 2598
+        discountMinor: 0
+        netMinor: 2598
+        items:
+          - productId: coffee
+            name: Coffee beans
+            quantity: 2
+            unitPriceMinor: 1299
+            lineTotalMinor: 2598
     Error:
       type: object
       required: [error]
