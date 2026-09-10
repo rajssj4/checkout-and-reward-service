@@ -94,4 +94,4 @@
 
 **Why:** Container builds need no database credentials, and autoscaled instances must not race to mutate schema or seed data at startup.
 
-**Trade-off:** The Vercel container path is beta and requires project PORT=3000 plus an external database. Image definitions duplicate a small build recipe so each remains independently deployable.
+**Trade-off:** Both images use Node 24 Alpine; current runtime dependencies are pure JavaScript. Recheck musl compatibility if native dependencies are introduced. The Vercel container path is beta and requires project PORT=3000 plus an external database. Image definitions duplicate a small build recipe so each remains independently deployable.

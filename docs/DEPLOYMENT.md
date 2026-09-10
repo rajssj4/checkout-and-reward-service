@@ -10,7 +10,7 @@
 | `compose.vercel.yaml` | Local override to exercise the Vercel image against the same stack                                |
 | `.dockerignore`       | Excludes secrets, Git metadata, local dependencies, and build outputs                             |
 
-Both images contain compiled migrations and Swagger files. Neither contains PostgreSQL or credentials. Both run `node dist/server.js`, accept runtime environment variables, and handle SIGTERM. Their health check is API liveness, not a continuous database check.
+Both images use `node:24.21.0-alpine` and contain compiled migrations and Swagger files. Neither contains PostgreSQL or credentials. Both run `node dist/server.js`, accept runtime environment variables, and handle SIGTERM. Their health check is API liveness, not a continuous database check.
 
 ## Run everything locally
 

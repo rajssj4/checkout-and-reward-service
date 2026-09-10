@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
-FROM node:24.21.0-bookworm-slim AS dependencies
+FROM node:24.21.0-alpine AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Runtime dependencies are pure JavaScript; no dependency install scripts are needed.
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-FROM node:24.21.0-bookworm-slim AS build
+FROM node:24.21.0-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
@@ -13,7 +13,7 @@ COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npm run build
 
-FROM node:24.21.0-bookworm-slim AS runtime
+FROM node:24.21.0-alpine AS runtime
 ENV NODE_ENV=production PORT=3000
 WORKDIR /app
 COPY --from=dependencies --chown=node:node /app/node_modules ./node_modules
