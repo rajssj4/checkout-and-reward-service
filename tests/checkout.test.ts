@@ -271,6 +271,25 @@ describe('atomic checkout and orders', () => {
     ).toBe(20 - quantity);
   });
 
+  it('returns a retryable lock timeout and preserves the checkout key for retry', async () => {
+    const id = await cart();
+    const key = randomUUID();
+    const blocker = await otherDb.transaction();
+    try {
+      await blocker('carts').where({ id }).forUpdate().first();
+      const busy = await checkout(id, key).expect(503);
+      expect(busy.body.error.code).toBe('SERVICE_BUSY');
+      expect(busy.headers['retry-after']).toBe('1');
+      expect(await db('orders').select('*')).toEqual([]);
+      expect(
+        (await db('products').where({ id: 'coffee' }).first()).inventory,
+      ).toBe(20);
+    } finally {
+      await blocker.rollback();
+    }
+    await checkout(id, key).expect(201);
+  });
+
   it('returns useful validation, missing-resource, empty-cart, and coupon errors', async () => {
     const id = await cart([]);
     await request(app).post(`/carts/${id}/checkout`).send({}).expect(400);

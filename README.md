@@ -1,6 +1,6 @@
 # Checkout and Reward Service
 
-Node.js 24, TypeScript, Express, PostgreSQL, and Knex. Initial setup includes configuration validation, versioned migrations, five seed products, health API, Swagger UI, and focused setup tests. Product listing and cart APIs are implemented. Atomic checkout, immutable orders, single-use milestone coupons, and reconciled reporting are implemented.
+Node.js 24 backend using TypeScript, Express, PostgreSQL, and Knex. Supports carts, atomic checkout, durable retries, immutable orders, single-use reward coupons, and reconciled administrative reporting.
 
 ## Setup
 
@@ -22,7 +22,7 @@ For an existing PostgreSQL server, create separate development/test databases an
 
 ## API documentation
 
-Open [Swagger UI](http://localhost:3000/docs) and use **Try it out** on `GET /health`. The [raw spec](http://localhost:3000/openapi.yaml) is served from [docs/openapi.yaml](docs/openapi.yaml). Requests use the current server origin, including custom ports; Swagger assets are served locally.
+Open [Swagger UI](http://localhost:3000/docs) to browse every endpoint and use **Try it out**. The [raw spec](http://localhost:3000/openapi.yaml) is served from [docs/openapi.yaml](docs/openapi.yaml). Requests use the current server origin, including custom ports; Swagger assets are served locally.
 
 ```sh
 curl http://localhost:3000/health
@@ -47,7 +47,7 @@ Reward settings are persisted at first initialization; subsequent startup/migrat
 ## Verification and build
 
 ```sh
-npm test                  # HTTP/configuration tests; no database required
+npm test                  # HTTP/configuration/money tests; no database required
 npm run test:integration  # Real PostgreSQL; requires TEST_DATABASE_URL
 npm run typecheck
 npm run format:check
@@ -55,9 +55,9 @@ npm run build
 npm start
 ```
 
-Integration tests create a unique schema in the dedicated test database and remove only that schema afterward. They verify migration/seed repetition, settings drift, constraints, and transaction rollback. Run both test commands for complete setup verification.
+Integration tests create a unique schema in the dedicated test database and remove only that schema afterward. They verify migration/seed repetition, settings drift, constraints, and transaction rollback. Run both test commands for full verification.
 
-`npm run test:watch` watches HTTP/configuration tests; `npm run format` applies formatting. TypeScript migrations compile with the app and are registered explicitly in `src/db/migrate.ts`; there is no separate SQL-copy step. The repository's `docs/` directory must remain alongside `dist/` for compiled Swagger serving.
+`npm run test:watch` watches HTTP/configuration/money tests; `npm run format` applies formatting. TypeScript migrations compile with the app and are registered explicitly in `src/db/migrate.ts`; there is no separate SQL-copy step. The repository's `docs/` directory must remain alongside `dist/` for compiled Swagger serving.
 
 ## Structure
 
@@ -67,11 +67,9 @@ Integration tests create a unique schema in the dedicated test database and remo
 - `tests/`: HTTP/configuration and real PostgreSQL integration tests.
 - [DECISIONS.md](DECISIONS.md): specific design choices and trade-offs.
 
-Product and cart APIs are implemented. Coupon generation/redemption and read-only reporting are implemented.
-
 ## Products and carts
 
-Run `npm run db:migrate` after updating the code to add cart and order tables. Open `/docs` to try the documented routes.
+Run `npm run db:migrate` after updating the code to apply all pending schema changes. Open `/docs` to try the documented routes.
 
 ```sh
 curl http://localhost:3000/products
@@ -122,3 +120,32 @@ Discounts use basis points and round half-up once on the whole order subtotal: `
 The all-time report includes purchased quantities for every product, gross revenue, discounts, net revenue, coupon counts, and successful orders. It reads one consistent snapshot and never changes state. Gross minus discounts equals net; generated coupons equal available plus redeemed. Aggregate values outside safe JSON integer bounds return AMOUNT_OUT_OF_RANGE rather than losing precision.
 
 Tests cover concurrent coupon generation/redemption, milestone backlogs, coupon preservation after stock/commit failures, 0%/100% discounts, rounding ties, and exact reporting after retries and failed requests.
+
+## Invariant enforcement
+
+| Invariant                                   | Enforcement                                                                     | Focused tests                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Inventory never negative; cart ordered once | `services/checkout.ts`, cart/product locks, guarded updates; schema constraints | `tests/checkout.test.ts`: last unit, competing keys, cart edits |
+| Retries do not create sales                 | Transaction-level key lock, unique order key, input fingerprint                 | Same-key competition and replay through another pool            |
+| Failed checkout changes nothing             | One transaction through COMMIT, including coupon association                    | Forced deferred commit failures in checkout/rewards tests       |
+| One coupon per milestone and one redemption | Settings/coupon locks plus unique milestone and order coupon constraints        | `tests/rewards.test.ts`: competing generation/redemption        |
+| Purchase history remains explainable        | Immutable order item/name/price snapshots and exact integer amounts             | Changed product data, money boundaries, rounding tests          |
+| Reports reconcile without writes            | Separate aggregates in one read-only repeatable-read transaction                | Exact mixed-outcome totals and repeated-report state comparison |
+
+Paths above are under `src/` unless prefixed with `tests/`. See [DECISIONS.md](DECISIONS.md) for semantics, alternatives, AI use, production evolution, and intentionally deferred concerns.
+
+## Submission status
+
+All required backend operations are implemented. Authentication, a real payment provider, refunds, taxes/shipping, a frontend, and deployment are intentionally excluded. Order immutability and append-only coupons are enforced through supported service operations, not protection against privileged direct database edits. Idempotency records have no retention policy; reports and coupon listing are unpaginated.
+
+The repository still needs to be shared as public or access-granted for submission. No remote publication is performed by local setup or tests.
+
+## Final verification and time spent
+
+Verified from a clean temporary copy with Node 24.21.0 and PostgreSQL 17: `npm ci`, migrations and seed run twice, typecheck, build, formatting, and **39 passing tests** (11 unit/HTTP and 28 PostgreSQL integration cases). The compiled service completed cart creation, six orders, coupon generation/redemption, checkout replay, order retrieval, reporting, and Swagger serving. OpenAPI YAML parses and all local references resolve. Docker Compose was not exercised in this environment; database verification used local PostgreSQL 17.
+
+Approximate time: **1 hour 59 minutes**, using the agreed calculation:
+
+- First commit in this repository: `dc98082`, September 10, 2026 at **20:43:59 IST**.
+- Final review completed: September 10, 2026 at **22:02:31 IST**.
+- Elapsed implementation window: **1 hour 18 minutes 32 seconds**, plus **40 minutes of planning**.

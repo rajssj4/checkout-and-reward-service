@@ -6,7 +6,7 @@
 
 **Why:** The user selected PostgreSQL and accepted Knex or Sequelize. Knex keeps transaction and locking behavior explicit with less model machinery than Sequelize.
 
-**Trade-off:** A running PostgreSQL server is required. Checkout still needs explicit row locking/guarded updates and uniqueness constraints; changing databases alone does not implement those guarantees.
+**Trade-off:** A running PostgreSQL server is required. Checkout uses explicit row locks, guarded updates, and uniqueness constraints; PostgreSQL provides the shared coordination boundary.
 
 ## Fixed reward settings and repeatable seed
 
@@ -34,7 +34,7 @@
 
 ## Atomic checkout and durable retries
 
-**Choice:** One PostgreSQL transaction locks the idempotency key, cart, then products in ID order; guarded stock updates, order snapshots, and cart closure commit together. Unique constraints enforce one order per cart/key. Commit is payment success.
+**Choice:** One PostgreSQL transaction locks the idempotency key, cart, optional coupon, then products in ID order; guarded stock updates, order snapshots, and cart closure commit together. Unique constraints enforce one order per cart/key. Commit is payment success.
 
 **Why:** Unlike process-local locks, database locks coordinate multiple instances. Transaction-level advisory locks serialize requests even before a key has a persisted result ([PostgreSQL locking](https://www.postgresql.org/docs/17/explicit-locking.html)).
 
@@ -63,3 +63,27 @@
 **Why:** Reports reconcile without duplicate revenue from joins or counters drifting after retries/failures.
 
 **Trade-off:** All-time aggregation and unpaginated coupon listing are appropriate for this assignment; production scale may need projections reconciled to source records.
+
+## Errors and client recovery
+
+**Choice:** Stable error codes: 400 for invalid inputs/unsupported amounts, 404 for missing resources, 409 for business conflicts, 503 with Retry-After for lock/deadlock/serialization conflicts, and 500 for unexpected failures.
+
+**Why:** Clients need to distinguish correcting input from retrying contention. Returning 200 for failures or treating every database error as retryable hides actionable differences.
+
+**Trade-off:** Checkout retries reuse the same key. Unexpected failures are logged server-side; responses omit SQL and stack traces.
+
+## Production evolution and scope
+
+**Choice:** Multiple instances share PostgreSQL and use the same lock ordering and unique constraints. Keep authentication, real payments, refunds, taxes, shipping, reservations, expiry, pagination, and deployment outside this submission.
+
+**Why:** These require separate lifecycle/security decisions beyond the checkout invariants. A distributed in-memory lock would add a second coordination system unnecessarily.
+
+**Trade-off:** Production needs authenticated key scope, bounded idempotency retention, database backup/restore verification, pool sizing, and recoverable provider-idempotent payments. With two more hours, examine high-contention multi-process failure/retry behavior and recovery after connection loss first.
+
+## AI assistance with independent verification
+
+**Choice:** Use Codex to draft code, tests, and documentation, then verify against real PostgreSQL and the compiled server.
+
+**Why:** Generated tests alone are insufficient: the initial named Knex import passed the test runner but failed in the real CLI. It was replaced with the runtime-compatible default import and verified through migrations and compiled startup. The user also redirected SQLite to PostgreSQL/Knex.
+
+**Trade-off:** AI accelerated implementation but does not establish correctness or human review. No private transcripts are included; the candidate remains responsible for explaining and reviewing the submitted code.
