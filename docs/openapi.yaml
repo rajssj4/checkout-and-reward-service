@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: Checkout and Rewards Service
+  version: 0.1.0
+  description: Initial setup API. Domain endpoints will be added during implementation.
+servers:
+  - url: /
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Service liveness
+      responses:
+        '200':
+          description: HTTP service is running; this does not continuously check database readiness.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+              example:
+                status: ok
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
